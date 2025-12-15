@@ -1,0 +1,46 @@
+{
+    "name": "yescale-telegram-bot",
+    "version": "1.0.0",
+    "description": "Production-ready Telegram bot powered by YesScale AI (OpenAI-compatible API)",
+    "main": "dist/index.js",
+    "scripts": {
+        "dev": "tsx watch src/index.ts",
+        "build": "tsc",
+        "start": "node dist/index.js",
+        "lint": "eslint src/**/*.ts",
+        "format": "prettier --write src/**/*.ts",
+        "type-check": "tsc --noEmit"
+    },
+    "keywords": [
+        "telegram",
+        "bot",
+        "yescale",
+        "ai",
+        "chatbot",
+        "openai-compatible"
+    ],
+    "author": "Your Name",
+    "license": "MIT",
+    "dependencies": {
+        "dotenv": "^16.4.1",
+        "grammy": "^1.21.1",
+        "mammoth": "^1.6.0",
+        "pdf-parse": "^1.1.1",
+        "winston": "^3.11.0",
+        "zod": "^3.22.4"
+    },
+    "devDependencies": {
+        "@types/node": "^20.11.5",
+        "@types/pdf-parse": "^1.1.4",
+        "@typescript-eslint/eslint-plugin": "^6.19.0",
+        "@typescript-eslint/parser": "^6.19.0",
+        "eslint": "^8.56.0",
+        "prettier": "^3.2.4",
+        "tsx": "^4.7.0",
+        "typescript": "^5.3.3"
+    },
+    "engines": {
+        "node": ">=18.0.0",
+        "npm": ">=9.0.0"
+    }
+}
