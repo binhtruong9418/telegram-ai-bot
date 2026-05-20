@@ -1,6 +1,6 @@
 import { BotContext } from "../../types";
 import { PhotoSize } from "grammy/types";
-import { yescaleService as aiService } from "../../services/yescale.service";
+import { openrouterService as aiService } from "../../services/openrouter.service";
 import { conversationService } from "../../services/conversation.service";
 import { botConfig } from "../../config/bot.config";
 import { logUserAction, logger } from "../../utils/logger";
@@ -10,7 +10,7 @@ import {
     TELEGRAM_LIMITS,
     TYPING_CONFIG,
 } from "../../utils/constants";
-import { formatGeminiResponse, splitMessage } from "../../utils/formatter";
+import { formatAiResponse, splitMessage } from "../../utils/formatter";
 import { createBotError } from "../middlewares";
 
 /**
@@ -159,41 +159,32 @@ export const imageHandler = async (ctx: BotContext): Promise<void> => {
         let fullResponse = "";
         let lastUpdateTime = 0;
         const UPDATE_INTERVAL = 1000;
-        let sentMessage: { message_id: number } | null = null;
+        let sentMsgId: number | null = null;
 
-        // Stream response from Gemini Vision
+        const streamingUpdate = async (text: string): Promise<void> => {
+            try {
+                if (sentMsgId !== null) {
+                    await ctx.api.editMessageText(ctx.chat!.id, sentMsgId, text, {
+                        parse_mode: "HTML",
+                    });
+                } else {
+                    const msg = await ctx.reply(text, { parse_mode: "HTML" });
+                    sentMsgId = msg.message_id;
+                }
+            } catch {
+                // Ignore streaming edit errors
+            }
+        };
+
         for await (const chunk of aiService.analyzeImageStream(request)) {
             if (!chunk.done) {
                 fullResponse += chunk.text;
-
-                // Update message periodically during streaming
                 const now = Date.now();
-                if (
-                    now - lastUpdateTime >= UPDATE_INTERVAL &&
-                    fullResponse.trim()
-                ) {
+                if (now - lastUpdateTime >= UPDATE_INTERVAL && fullResponse.trim()) {
                     lastUpdateTime = now;
-
-                    const formattedResponse =
-                        formatGeminiResponse(fullResponse);
-                    const truncated = formattedResponse.substring(
-                        0,
-                        TELEGRAM_LIMITS.MAX_MESSAGE_LENGTH
+                    await streamingUpdate(
+                        formatAiResponse(fullResponse).substring(0, TELEGRAM_LIMITS.MAX_MESSAGE_LENGTH)
                     );
-
-                    try {
-                        if (sentMessage) {
-                            await ctx.api.editMessageText(
-                                ctx.chat!.id,
-                                sentMessage.message_id,
-                                truncated
-                            );
-                        } else {
-                            sentMessage = await ctx.reply(truncated);
-                        }
-                    } catch (error) {
-                        // Ignore edit errors
-                    }
                 }
             }
         }
@@ -204,43 +195,33 @@ export const imageHandler = async (ctx: BotContext): Promise<void> => {
             await typingPromise.catch(() => {});
         }
 
-        // Format final response
-        const formattedResponse = formatGeminiResponse(fullResponse);
+        const formattedResponse = formatAiResponse(fullResponse);
+        const chunks = formattedResponse.length > TELEGRAM_LIMITS.MAX_MESSAGE_LENGTH
+            ? splitMessage(formattedResponse)
+            : [formattedResponse];
 
-        // Check if response is too long and needs splitting
-        if (formattedResponse.length > TELEGRAM_LIMITS.MAX_MESSAGE_LENGTH) {
-            const chunks = splitMessage(formattedResponse);
-
-            for (let i = 0; i < chunks.length; i++) {
-                const chunk = chunks[i]!; // Array from splitMessage is always populated
-
-                if (i === 0 && sentMessage) {
-                    await ctx.api.editMessageText(
-                        ctx.chat!.id,
-                        sentMessage.message_id,
-                        chunk
-                    );
-                } else {
+        const existingMsgId = sentMsgId;
+        for (let i = 0; i < chunks.length; i++) {
+            const chunk = chunks[i]!;
+            if (i === 0 && existingMsgId !== null) {
+                try {
+                    await ctx.api.editMessageText(ctx.chat!.id, existingMsgId, chunk, {
+                        parse_mode: "HTML",
+                    });
+                } catch {
+                    try { await ctx.api.editMessageText(ctx.chat!.id, existingMsgId, chunk); }
+                    catch { /* identical content */ }
+                }
+            } else {
+                try {
+                    await ctx.reply(chunk, { parse_mode: "HTML" });
+                } catch {
                     await ctx.reply(chunk);
                 }
             }
-        } else {
-            if (sentMessage) {
-                await ctx.api.editMessageText(
-                    ctx.chat!.id,
-                    sentMessage.message_id,
-                    formattedResponse
-                );
-            } else {
-                await ctx.reply(formattedResponse);
-            }
         }
 
-        // Add model response to conversation history (without image in response)
-        ctx.session = conversationService.addModelMessage(
-            ctx.session,
-            fullResponse
-        );
+        ctx.session = conversationService.addModelMessage(ctx.session, fullResponse);
 
         logUserAction(user.id, user.username, "image_response_sent", {
             responseLength: fullResponse.length,

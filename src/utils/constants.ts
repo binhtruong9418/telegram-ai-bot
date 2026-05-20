@@ -25,9 +25,9 @@ export const COMMAND_DESCRIPTIONS = {
  */
 export const MESSAGES = {
     // Welcome and help
-    WELCOME: `👋 *Welcome to YesScale AI Bot!*
+    WELCOME: `👋 *Welcome!*
 
-I'm powered by YesScale AI (OpenAI-compatible API) and I'm here to help you with:
+I'm an AI assistant powered by OpenRouter. I can help you with:
 • Answering questions on any topic
 • Analyzing images and photos
 • Having multi-turn conversations with context
@@ -51,7 +51,7 @@ Just send me a message or image to get started! 🚀`,
 *How to use:*
 
 📝 *Text Messages*
-Just type your question or message and I'll respond using YesScale AI.
+Just type your question and I'll respond.
 
 🖼️ *Images*
 Send an image and I'll analyze it. You can also add a caption with your question.
@@ -81,7 +81,7 @@ Need help? Just ask me anything! 💡`,
         "⏳ You're sending images too quickly! Please wait a moment before sending another image.",
 
     ERROR_GEMINI_API:
-        "❌ I'm having trouble connecting to YesScale AI. Please try again in a moment.",
+        "❌ I'm having trouble connecting to the AI. Please try again in a moment.",
 
     ERROR_IMAGE_DOWNLOAD:
         "❌ Sorry, I couldn't download that image. Please try sending it again.",
@@ -104,8 +104,7 @@ Need help? Just ask me anything! 💡`,
 
     THINKING: "🤔 Let me think about that...",
 
-    // Footer
-    FOOTER: "\n\n✨ _Powered by YesScale AI_",
+    FOOTER: "",
 } as const;
 
 /**

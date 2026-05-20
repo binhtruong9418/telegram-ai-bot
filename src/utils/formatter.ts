@@ -194,17 +194,68 @@ export const cleanText = (text: string): string => {
 };
 
 /**
- * Converts a Gemini response to Telegram-friendly format
+ * Escapes HTML special characters in plain text segments.
+ * Required before inserting raw text into Telegram HTML messages.
  */
-export const formatGeminiResponse = (text: string): string => {
-  // Clean up the text
-  let formatted = cleanText(text);
+const escapeHtml = (str: string): string =>
+  str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-  // Format message with footer
-  formatted = formatMessage(formatted, true);
+/**
+ * Converts AI markdown output to Telegram HTML format.
+ * HTML parse_mode is more robust than Markdown — unbalanced * or _ won't break the whole message.
+ * Supported Telegram HTML tags: <b>, <i>, <u>, <s>, <code>, <pre>, <a href>.
+ */
+export const convertToTelegramHtml = (text: string): string => {
+  // Use numeric-only placeholders — no underscores or letters that could match italic/bold regex
+  const codeBlocks: string[] = [];
+  let result = text.replace(/```(\w*)\n?([\s\S]*?)```/g, (_match, lang, code) => {
+    const escaped = escapeHtml(code.trim());
+    const tag = lang ? `<pre><code class="language-${lang}">${escaped}</code></pre>` : `<pre>${escaped}</pre>`;
+    codeBlocks.push(tag);
+    return `\x02CB${codeBlocks.length - 1}\x03`;
+  });
 
-  return formatted;
+  const inlineCodes: string[] = [];
+  result = result.replace(/`([^`]+)`/g, (_match, code) => {
+    inlineCodes.push(`<code>${escapeHtml(code)}</code>`);
+    return `\x02IC${inlineCodes.length - 1}\x03`;
+  });
+
+  // Escape HTML in remaining text (placeholders use \x02/\x03 which are unaffected)
+  result = escapeHtml(result);
+
+  // Convert **bold** → <b>bold</b>
+  result = result.replace(/\*\*(.+?)\*\*/gs, '<b>$1</b>');
+
+  // Convert *text* → <i>text</i> (single asterisk only)
+  result = result.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/gs, '<i>$1</i>');
+
+  // Convert _text_ → <i>text</i> (single underscore only, not inside words)
+  result = result.replace(/(?<=\s|^)_([^_]+)_(?=\s|$|[.,!?])/gm, '<i>$1</i>');
+
+  // Convert # / ## / ### headings → <b>heading</b>
+  result = result.replace(/^#{1,6}\s+(.+)$/gm, '<b>$1</b>');
+
+  // Restore inline code and code blocks
+  inlineCodes.forEach((code, i) => {
+    result = result.replace(`\x02IC${i}\x03`, code);
+  });
+  codeBlocks.forEach((block, i) => {
+    result = result.replace(`\x02CB${i}\x03`, block);
+  });
+
+  return result.trim();
 };
+
+/**
+ * Formats an AI response for Telegram display using HTML parse mode.
+ */
+export const formatAiResponse = (text: string): string => {
+  return convertToTelegramHtml(cleanText(text));
+};
+
+/** @deprecated Use formatAiResponse instead */
+export const formatGeminiResponse = formatAiResponse;
 
 /**
  * Formats an error message for user display

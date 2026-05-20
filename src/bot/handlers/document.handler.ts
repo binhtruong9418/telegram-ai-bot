@@ -1,8 +1,8 @@
 import { BotContext } from "../../types";
 import { fileService } from "../../services/file.service";
-import { yescaleService as aiService } from "../../services/yescale.service";
+import { openrouterService as aiService } from "../../services/openrouter.service";
 import { logger } from "../../utils/logger";
-import { escapeMarkdown } from "../../utils/formatter";
+
 
 const MAX_FILES = parseInt(process.env["MAX_FILES_PER_USER"] || "10");
 

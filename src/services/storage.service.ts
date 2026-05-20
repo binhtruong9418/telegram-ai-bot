@@ -157,11 +157,11 @@ export class InMemorySessionStorage implements SessionStorage {
     if (sessions.length > 0) {
       oldest = sessions.reduce((min, s) =>
         s.createdAt < min ? s.createdAt : min,
-        sessions[0].createdAt
+        sessions[0]!.createdAt
       );
       newest = sessions.reduce((max, s) =>
         s.createdAt > max ? s.createdAt : max,
-        sessions[0].createdAt
+        sessions[0]!.createdAt
       );
     }
 

@@ -122,9 +122,9 @@ export interface FileStats {
  */
 export interface UserSettings {
   /**
-   * Gemini model to use (text or vision)
+   * AI model to use
    */
-  model: 'gemini-pro' | 'gemini-pro-vision';
+  model: string;
 
   /**
    * Temperature for generation (0.0 to 1.0)
@@ -378,7 +378,7 @@ export interface GeminiStreamChunk {
  * Default user settings
  */
 export const DEFAULT_USER_SETTINGS: UserSettings = {
-  model: 'gemini-pro',
+  model: 'meta-llama/llama-3.3-70b-instruct:free',
   temperature: 0.7,
   showTypingIndicator: true,
   maxTokens: 2048,

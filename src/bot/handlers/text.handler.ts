@@ -1,5 +1,5 @@
 import { BotContext } from "../../types";
-import { yescaleService as aiService } from "../../services/yescale.service";
+import { openrouterService as aiService } from "../../services/openrouter.service";
 import { conversationService } from "../../services/conversation.service";
 import { botConfig } from "../../config/bot.config";
 import { logUserAction, logger } from "../../utils/logger";
@@ -8,7 +8,7 @@ import {
     TELEGRAM_LIMITS,
     TYPING_CONFIG,
 } from "../../utils/constants";
-import { formatGeminiResponse, splitMessage } from "../../utils/formatter";
+import { formatAiResponse, splitMessage } from "../../utils/formatter";
 import { createBotError } from "../middlewares";
 
 /**
@@ -75,55 +75,39 @@ export const textHandler = async (ctx: BotContext): Promise<void> => {
 
         let fullResponse = "";
         let lastUpdateTime = 0;
-        const UPDATE_INTERVAL = 1000; // Update message every 1 second
-        let sentMessage: { message_id: number } | null = null;
+        const UPDATE_INTERVAL = 1000;
+        // Store only the message_id to avoid Grammy type narrowing issues
+        let sentMsgId: number | null = null;
 
-        // Stream response from Gemini (with or without file context)
+        // Helper: edit or send with Markdown, silently ignoring Telegram edit errors
+        const streamingUpdate = async (text: string): Promise<void> => {
+            try {
+                if (sentMsgId !== null) {
+                    await ctx.api.editMessageText(ctx.chat!.id, sentMsgId, text, {
+                        parse_mode: "HTML",
+                    });
+                } else {
+                    const msg = await ctx.reply(text, { parse_mode: "HTML" });
+                    sentMsgId = msg.message_id;
+                }
+            } catch {
+                // Ignore streaming edit errors (content too similar, or mid-stream markdown)
+            }
+        };
+
+        // Stream response (with or without file context)
         if (files.length > 0) {
-            // Use file context streaming
-            const stream = aiService.generateStreamWithFileContext(
-                userMessage,
-                files,
-                history
-            );
-
-            for await (const text of stream) {
+            for await (const text of aiService.generateStreamWithFileContext(userMessage, files, history)) {
                 fullResponse += text;
-
-                // Update message periodically during streaming
                 const now = Date.now();
-                if (
-                    now - lastUpdateTime >= UPDATE_INTERVAL &&
-                    fullResponse.trim()
-                ) {
+                if (now - lastUpdateTime >= UPDATE_INTERVAL && fullResponse.trim()) {
                     lastUpdateTime = now;
-
-                    const formattedResponse =
-                        formatGeminiResponse(fullResponse);
-                    const truncated = formattedResponse.substring(
-                        0,
-                        TELEGRAM_LIMITS.MAX_MESSAGE_LENGTH
+                    await streamingUpdate(
+                        formatAiResponse(fullResponse).substring(0, TELEGRAM_LIMITS.MAX_MESSAGE_LENGTH)
                     );
-
-                    try {
-                        if (sentMessage) {
-                            // Edit existing message
-                            await ctx.api.editMessageText(
-                                ctx.chat!.id,
-                                sentMessage.message_id,
-                                truncated
-                            );
-                        } else {
-                            // Send initial message
-                            sentMessage = await ctx.reply(truncated);
-                        }
-                    } catch (error) {
-                        // Ignore edit errors (message might be too similar)
-                    }
                 }
             }
         } else {
-            // No files - use regular text streaming
             for await (const chunk of aiService.generateTextStream({
                 prompt: userMessage,
                 conversationHistory: history,
@@ -132,34 +116,12 @@ export const textHandler = async (ctx: BotContext): Promise<void> => {
             })) {
                 if (!chunk.done) {
                     fullResponse += chunk.text;
-
                     const now = Date.now();
-                    if (
-                        now - lastUpdateTime >= UPDATE_INTERVAL &&
-                        fullResponse.trim()
-                    ) {
+                    if (now - lastUpdateTime >= UPDATE_INTERVAL && fullResponse.trim()) {
                         lastUpdateTime = now;
-
-                        const formattedResponse =
-                            formatGeminiResponse(fullResponse);
-                        const truncated = formattedResponse.substring(
-                            0,
-                            TELEGRAM_LIMITS.MAX_MESSAGE_LENGTH
+                        await streamingUpdate(
+                            formatAiResponse(fullResponse).substring(0, TELEGRAM_LIMITS.MAX_MESSAGE_LENGTH)
                         );
-
-                        try {
-                            if (sentMessage) {
-                                await ctx.api.editMessageText(
-                                    ctx.chat!.id,
-                                    sentMessage.message_id,
-                                    truncated
-                                );
-                            } else {
-                                sentMessage = await ctx.reply(truncated);
-                            }
-                        } catch (error) {
-                            // Ignore edit errors
-                        }
                     }
                 }
             }
@@ -168,63 +130,45 @@ export const textHandler = async (ctx: BotContext): Promise<void> => {
         // Stop typing indicator
         abortController.abort();
         if (typingPromise) {
-            await typingPromise.catch(() => {}); // Ignore errors
+            await typingPromise.catch(() => {});
         }
 
-        // Format final response
-        const formattedResponse = formatGeminiResponse(fullResponse);
+        // Send final formatted response
+        const formattedResponse = formatAiResponse(fullResponse);
+        const chunks = formattedResponse.length > TELEGRAM_LIMITS.MAX_MESSAGE_LENGTH
+            ? splitMessage(formattedResponse)
+            : [formattedResponse];
 
-        // Check if response is too long and needs splitting
-        if (formattedResponse.length > TELEGRAM_LIMITS.MAX_MESSAGE_LENGTH) {
-            const chunks = splitMessage(formattedResponse);
+        const existingMsgId = sentMsgId;
+        for (let i = 0; i < chunks.length; i++) {
+            const chunk = chunks[i]!;
 
-            // Send all chunks
-            for (let i = 0; i < chunks.length; i++) {
-                if (i === 0 && sentMessage) {
-                    // Update the first message
-                    try {
-                        await ctx.api.editMessageText(
-                            ctx.chat!.id,
-                            sentMessage.message_id,
-                            chunks[i]
-                        );
-                    } catch (error) {
-                        // Ignore edit errors (message might be identical)
-                    }
-                } else {
-                    // Send new messages for additional chunks
-                    await ctx.reply(chunks[i]);
-                }
-            }
-        } else {
-            // Send or update single message
-            if (sentMessage) {
+            if (i === 0 && existingMsgId !== null) {
                 try {
-                    await ctx.api.editMessageText(
-                        ctx.chat!.id,
-                        sentMessage.message_id,
-                        formattedResponse
-                    );
-                } catch (error) {
-                    // Ignore edit errors (message might be identical)
+                    await ctx.api.editMessageText(ctx.chat!.id, existingMsgId, chunk, {
+                        parse_mode: "HTML",
+                    });
+                } catch {
+                    // Markdown malformed — fall back to plain text
+                    try {
+                        await ctx.api.editMessageText(ctx.chat!.id, existingMsgId, chunk);
+                    } catch { /* identical content */ }
                 }
             } else {
-                await ctx.reply(formattedResponse);
+                try {
+                    await ctx.reply(chunk, { parse_mode: "HTML" });
+                } catch {
+                    await ctx.reply(chunk);
+                }
             }
         }
 
         // Add model response to conversation history
-        ctx.session = conversationService.addModelMessage(
-            ctx.session,
-            fullResponse
-        );
+        ctx.session = conversationService.addModelMessage(ctx.session, fullResponse);
 
         logUserAction(user.id, user.username, "response_sent", {
             responseLength: fullResponse.length,
-            chunks:
-                formattedResponse.length > TELEGRAM_LIMITS.MAX_MESSAGE_LENGTH
-                    ? "multiple"
-                    : "single",
+            chunks: chunks.length > 1 ? "multiple" : "single",
         });
     } catch (error) {
         // Stop typing indicator

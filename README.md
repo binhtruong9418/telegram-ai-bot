@@ -1,383 +1,279 @@
-# YesScale AI Telegram Bot
+# Telegram OpenRouter AI Bot
 
-A production-ready Telegram bot powered by YesScale AI (OpenAI-compatible API). This bot provides an intelligent conversational interface with support for text conversations, image analysis, file attachments, and context-aware responses.
+A production-ready Telegram bot powered by OpenRouter API (OpenAI-compatible). Chat with state-of-the-art LLMs, analyze images, parse documents, with streaming responses and automatic session management.
 
 ## Features
 
-- **Conversational AI**: Natural conversations powered by YesScale AI
-- **Multi-turn Context**: Maintains conversation history (up to 20 messages)
-- **Image Analysis**: Analyze images using vision models (GPT-4o, Claude, etc.)
-- **File Attachments**: Support for PDF, DOCX, and text file analysis
-- **Streaming Responses**: Real-time streaming responses with typing indicators
-- **Rate Limiting**: Built-in rate limiting to prevent abuse
-- **Session Management**: Automatic session cleanup and management
-- **Error Handling**: Comprehensive error handling with user-friendly messages
-- **Production Ready**: Logging, monitoring, and graceful shutdown support
+- **Text Conversations**: Multi-turn conversations with 20-message history
+- **Image Analysis**: Vision models analyze photos, diagrams, screenshots
+- **Document Support**: PDF, DOCX, TXT, JSON, code files with content-aware parsing
+- **Streaming Responses**: Real-time message updates, typing indicators
+- **Rate Limiting**: 20 text/5 image messages per minute per user
+- **Session Management**: Auto-cleanup, per-user conversation state
+- **Error Handling**: Graceful error messages, logged exceptions
+- **Production Ready**: Winston logging, TypeScript strict mode, graceful shutdown
 
 ## Tech Stack
 
-- **Runtime**: Node.js v18+
-- **Language**: TypeScript (strict mode)
-- **Bot Framework**: Grammy
-- **AI API**: YesScale AI (OpenAI-compatible)
-- **Logging**: Winston
-- **Validation**: Zod
-- **Session Storage**: In-memory (Redis-ready architecture)
+| Component | Technology |
+|-----------|-----------|
+| Runtime | Node.js 18+ |
+| Language | TypeScript (strict mode) |
+| Bot Framework | Grammy 1.21+ |
+| AI API | OpenRouter (OpenAI-compatible) |
+| Logging | Winston |
+| Validation | Zod |
 
-## Prerequisites
+## Quick Start
 
-- Node.js 18 or higher
-- npm or yarn
-- Telegram Bot Token (from [@BotFather](https://t.me/botfather))
-- YesScale API Key (from [YesScale.io](https://yescale.io/))
+### Prerequisites
 
-## Installation
+- Node.js 18+, npm 9+
+- Telegram Bot Token ([@BotFather](https://t.me/botfather))
+- OpenRouter API Key ([openrouter.ai](https://openrouter.ai/keys))
 
-1. **Clone the repository**:
+### Installation
 
-    ```bash
-    git clone <repository-url>
-    cd yescale-telegram-bot
-    ```
+```bash
+git clone <repository-url>
+cd telegram-ai-bot
+npm install
+```
 
-2. **Install dependencies**:
+### Configuration
 
-    ```bash
-    npm install
-    ```
+```bash
+cp .env.example .env
+```
 
-3. **Create environment file**:
+Edit `.env`:
+```env
+BOT_TOKEN=your_telegram_bot_token
+OPENROUTER_API_KEY=your_openrouter_api_key
+NODE_ENV=development
+LOG_LEVEL=info
+```
 
-    ```bash
-    cp .env.example .env
-    ```
+See `docs/deployment-guide.md` for all environment variables.
 
-4. **Configure environment variables**:
+### Run
 
-    Edit `.env` and add your credentials:
-
-    ```env
-    BOT_TOKEN=your_telegram_bot_token
-    YESCALE_API_KEY=your_yescale_api_key
-    ```
-
-## Configuration
-
-### Required Environment Variables
-
-- `BOT_TOKEN`: Your Telegram bot token from @BotFather
-- `YESCALE_API_KEY`: Your YesScale API key from [YesScale.io](https://yescale.io/)
-
-### Optional Environment Variables
-
-| Variable               | Default                     | Description                              |
-| ---------------------- | --------------------------- | ---------------------------------------- |
-| `NODE_ENV`             | `development`               | Environment mode                         |
-| `LOG_LEVEL`            | `info`                      | Logging level (error, warn, info, debug) |
-| `SESSION_TIMEOUT`      | `3600000`                   | Session timeout in milliseconds (1 hour) |
-| `MAX_HISTORY_LENGTH`   | `20`                        | Maximum conversation history length      |
-| `RATE_LIMIT_MESSAGES`  | `20`                        | Text messages per minute per user        |
-| `RATE_LIMIT_IMAGES`    | `5`                         | Images per minute per user               |
-| `YESCALE_BASE_URL`     | `https://api.yescale.io/v1` | YesScale API base URL                    |
-| `YESCALE_TEXT_MODEL`   | `gpt-4o`                    | AI model for text generation             |
-| `YESCALE_VISION_MODEL` | `gpt-4o`                    | AI model for vision/image analysis       |
-| `YESCALE_TEMPERATURE`  | `0.7`                       | AI generation temperature (0.0 to 2.0)   |
-
-See `.env.example` for complete configuration options.
-
-## Usage
-
-### Development Mode
-
-Run the bot in development mode with auto-reload:
-
+**Development** (auto-reload):
 ```bash
 npm run dev
 ```
 
-### Production Mode
+**Production** (compile & run):
+```bash
+npm run build
+npm start
+```
 
-1. Build the TypeScript code:
+## Commands
 
-    ```bash
-    npm run build
-    ```
+| Command | Effect |
+|---------|--------|
+| `/start` | Welcome message & feature intro |
+| `/help` | Command list & usage guide |
+| `/new` | Clear conversation history |
+| `/clear` | Alias for `/new` |
 
-2. Start the bot:
-    ```bash
-    npm start
-    ```
+## Usage Examples
 
-### Type Checking
+**Text Chat**:
+```
+You: What is TypeScript?
+Bot: TypeScript is a programming language... [streaming response]
+```
 
-Check TypeScript types without compiling:
+**Image Analysis**:
+```
+You: [send photo]
+Bot: This image shows... [vision model analysis]
+```
 
+**Document Analysis**:
+```
+You: [send PDF]
+Bot: Document received and analyzed.
+You: Summarize the key points
+Bot: [streaming response with document context]
+```
+
+## Architecture
+
+```
+Telegram → Long Polling → Grammy → Middlewares (session → rate-limit → error)
+                                    ↓
+                              Handlers (text/photo/document/image)
+                                    ↓
+                            OpenRouter Service (streaming, retry)
+                                    ↓
+                              OpenRouter API
+```
+
+See `docs/system-architecture.md` for detailed architecture.
+
+## Configuration
+
+### Required
+
+- `BOT_TOKEN`: Telegram bot token from @BotFather
+- `OPENROUTER_API_KEY`: API key from openrouter.ai
+
+### Optional
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `NODE_ENV` | `development` | Environment mode |
+| `LOG_LEVEL` | `info` | Winston logging level |
+| `SESSION_TIMEOUT` | `3600000` | Session cleanup (1 hour, ms) |
+| `MAX_HISTORY_LENGTH` | `20` | Messages to retain per session |
+| `RATE_LIMIT_MESSAGES` | `20` | Text msgs/min per user |
+| `RATE_LIMIT_IMAGES` | `5` | Image msgs/min per user |
+| `OPENROUTER_TEXT_MODEL` | `meta-llama/llama-3.3-70b-instruct:free` | Text model |
+| `OPENROUTER_VISION_MODEL` | `google/gemma-3-27b-it:free` | Vision model |
+| `OPENROUTER_TEMPERATURE` | `0.7` | Creativity (0–2) |
+| `OPENROUTER_MAX_TOKENS` | `2048` | Max response length |
+| `OPENROUTER_TIMEOUT` | `120000` | API timeout (2 min, ms) |
+
+See `.env.example` and `docs/deployment-guide.md` for complete reference.
+
+## Project Structure
+
+```
+src/
+├── index.ts                 Entry point, graceful shutdown
+├── config/                  Environment validation (Zod)
+├── bot/                     Grammy bot, commands, handlers, middlewares
+├── services/                OpenRouter, conversation, file, storage
+├── types/                   TypeScript domain types
+└── utils/                   Constants, formatters, logger, file parser
+```
+
+See `docs/codebase-summary.md` for detailed breakdown.
+
+## Development
+
+### Type Check
 ```bash
 npm run type-check
 ```
 
-## Bot Commands
-
-| Command  | Description                               |
-| -------- | ----------------------------------------- |
-| `/start` | Show welcome message and introduction     |
-| `/help`  | Display available commands and usage      |
-| `/new`   | Start a new conversation (clears context) |
-| `/clear` | Clear conversation history                |
-
-## Features in Detail
-
-YesScale AI
-
-- Maintains conversation context for natural multi-turn conversations
-- Supports up to 20 messages in history
-- Automatic context pruning when limit is reached
-- Multiple AI models available (GPT-4o, Claude, Gemini, DeepSeek, etc.)
-- Maintains conversation context for natural multi-turn conversations
-- Supports up to 20 messages in history
-- Automatic context pruning when limit is reached
-
-### Image Analysis
-
-- Send images directly to the bot for analysis
-- Add captions to ask specific questions about images
-- Supports JPEG, PNG, WebP, HEIC, and HEIF formats
-- Maximum file size: 10MB for photos, 50MB for documents
-
-### Streaming Responses
-
-- Real-time streaming of AI responses
-- Typing indicator while processing
-- Progressive message updates during generation
-- Automatic message splitting for long responses
-
-### Rate Limiting
-
-- 20 text messages per minute per user
-- 5 images per minute per user
-- Automatic reset every minute
-- User-friendly error messages when limits are reached
-
-### Session Management
-
-- Automatic session creation for new users
-- Session persistence across bot restarts (in production with Redis)
-- Automatic cleanup of inactive sessions (after 1 hour)
-- Per-user conversation history and settings
-
-## Project Structure
-
-yescale-telegram-bot/
-├── src/
-│ ├── index.ts # Entry point
-│ ├── config/
-│ │ ├── bot.config.ts # Bot configuration
-│ │ └── yescale.config.ts # YesScale API config
-│ ├── bot/
-│ │ ├── bot.ts # Grammy bot instance
-│ │ ├── commands/ # Command handlers
-│ │ ├── handlers/ # Message handlers
-│ │ └── middlewares/ # Custom middlewares
-│ ├── services/
-│ │ ├── yescale.service.ts # YesScale API integration
-│ │ ├── conversation.service.ts # Conversation management
-│ │ ├── file.service.ts # File handling
-│ │ └── storage.service.ts # Data persistence
-│ ├── types/
-│ │ ├── session.types.ts # Type definitions
-│ │ └── index.ts
-│ └── utils/
-│ ├── logger.ts # Winston logger
-│ ├── constants.ts # Constants
-│ ├── formatter.ts # Message formatting
-│ └── file-parser.ts # File parsing utilities
-│ └── formatter.ts # Message formatting
-├── package.json
-├── tsconfig.json
-├── .env.example
-├── .gitignore
-└── README.md
-
-````
-
-## Development
-
-### Code Style
-
-This project uses:
-- TypeScript strict mode
-- ESLint for linting
-- Prettier for code formatting
-
-Format code:
-```bash
-npm run format
-````
-
-Lint code:
-
+### Lint
 ```bash
 npm run lint
 ```
 
-### Adding New Features
-
-1. **New Commands**: Add handler in `src/bot/commands/`
-2. **New Message Handlers**: Add handler in `src/bot/handlers/`
-3. **New Middlewares**: Add middleware in `src/bot/middlewares/`
-4. **New Services**: Add service in `src/services/`
-
-### Logging
-
-The bot uses Winston for logging with:
-
-- Console transport (colored output)
-- File transport (`logs/combined.log`)
-- Error file transport (`logs/error.log`)
-
-Log levels: `error`, `warn`, `info`, `debug`
+### Format
+```bash
+npm run format
+```
 
 ## Deployment
 
-### Using PM2 (Recommended)
-
-1. Install PM2:
-
-    ```bash
-    npm install -g pm2
-    ```
-
-2. Build the project:
-
-    ```bash
-    npm run build
-    ```
-
-3. Start with PM2:yescale
-
-    ```bash
-    pm2 start dist/index.js --name gemini-bot
-    ```
-
-4. Save PM2 configuration:
-    ```bash
-    pm2 save
-    pm2 startup
-    ```
-
-### Using Docker
-
-Create a `Dockerfile`:
-
-```dockerfile
-FROM node:18-alpine
-
-WORKDIR /app
-
-COPY package*.json ./
-RUN npm ci --only=production
-
-COPY . .
-RUN npm run build
-
-CMD ["node", "dist/index.js"]
-```
-
-Build and run:
+### PM2 (Recommended)
 
 ```bash
-docker build -t yescale-telegram-bot .
-docker run -d --env-file .env yescale-telegram-bot
+npm run build
+pm2 start dist/index.js --name "telegram-ai-bot"
+pm2 startup
+pm2 save
 ```
 
-### Environment Setup
+### Docker
 
-For production deployment:
+```bash
+docker build -t telegram-ai-bot .
+docker run -d --env-file .env telegram-ai-bot
+```
 
-1. Set `NODE_ENV=production`
-2. Set `LOG_LEVEL=info` or `warn`
-3. Configure Redis for session storage (optional)
-4. Set up log rotation
-5. Configure monitoring and alerts
+### Systemd (Linux)
+
+See `docs/deployment-guide.md` for systemd service setup.
 
 ## Troubleshooting
 
-### Bot not responding
+**Bot not responding?**
+1. Verify `BOT_TOKEN` is valid: `curl -s "https://api.telegram.org/bot{TOKEN}/getMe"`
+2. Check logs: `tail -f logs/error.log`
+3. Ensure process running: `pm2 list` or `docker ps`
 
-1. Check bot token is correct
-2. Verify YesScale API key is valid
-3. Check logs in `logs/error.log`
-4. Ensure bot has internet connectivity
-5. Verify YesScale API status at [status.yescale.io](https://status.yescale.io/status/global)
+**OpenRouter errors?**
+1. Check API key is correct
+2. Verify quota/balance in OpenRouter dashboard
+3. Increase timeout for free tier: `OPENROUTER_TIMEOUT=180000`
 
-### Rate limit errors
+**Rate limited?**
+1. Adjust `RATE_LIMIT_MESSAGES` / `RATE_LIMIT_IMAGES`
+2. Wait 1 minute for window reset
 
-- Default limits: 20 messages/min, 5 images/min
-- Adjust in `.env` file with `RATE_LIMIT_MESSAGES` and `RATE_LIMIT_IMAGES`
-- Limits reset every minute
+**File upload fails?**
+1. Check file <10MB
+2. Supported formats: PDF, DOCX, TXT, JSON, images
+3. Check logs for parse errors
 
-### Image analysis not working
+See `docs/deployment-guide.md` for comprehensive troubleshooting.
 
-1. Verify image format is supported (JPEG, PNG, WebP, HEIC, HEIF)
-2. Check fyou're using a vision-capable model (gpt-4o, gpt-4-turbo, claude-3-opus, etc.)
-3. Check YesScale API quota and balancePI is enabled
-4. Check Gemini API quota
+## Performance
 
-### Memory issues
-
-- Reduce `MAX_HISTORY_LENGTH` to store fewer messages
-- Reduce `SESSION_TIMEOUT` to cleanup sessions faster
-- Consider implementing Redis for production
-
-## API Limits
-
-### Telegram API
-
-- Maximum message length: 4096 characters
-- Maximum photo size: 10MB
-- Maximum document size: 50MB
-
-### YesScale AI
-
-- Rate limits vary by plan and model
-- Check your quota and balance in YesScale dashboard
-- API status: [status.yescale.io](https://status.yescale.io/status/global)
-- No VPN required, global access
+| Metric | Target |
+|--------|--------|
+| Startup | <5s (excluding first API cold start) |
+| Text Response | <100ms overhead (API time varies) |
+| Memory | <100MB per 100 sessions |
+| Uptime | >99% (graceful shutdown, auto-cleanup) |
 
 ## Security
 
-- Never commit `.env` file with real credentials
-- Use environment variables for all secrets
-- Implement rate limiting (included)
-- Validate all user inputs (included)
-- Keep dependencies updated
+- No secrets logged (API keys, tokens, messages)
+- Input validation via Zod
+- Rate limiting to prevent abuse
+- User-friendly error messages (no stack traces exposed)
+- Session auto-cleanup (1 hour default)
+- Never commit `.env` file
+
+## Roadmap
+
+1. **Phase 1** (Current): Core bot, OpenRouter integration, streaming, files
+2. **Phase 2**: Redis persistence, multi-language
+3. **Phase 3**: Analytics dashboard, usage quotas
+4. **Phase 4**: Webhook mode, clustering, horizontal scaling
+
+## Documentation
+
+- **`docs/project-overview-pdr.md`** — Product vision, features, PDR
+- **`docs/codebase-summary.md`** — Code structure, file inventory
+- **`docs/code-standards.md`** — TypeScript conventions, patterns
+- **`docs/system-architecture.md`** — Architecture diagrams, data flow
+- **`docs/deployment-guide.md`** — Setup, PM2, Docker, troubleshooting
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Run tests and linting
-5. Submit a pull request
+1. Fork repository
+2. Create feature branch
+3. Follow `docs/code-standards.md`
+4. Run tests & linting: `npm run lint && npm run type-check`
+5. Commit with descriptive message
+6. Submit pull request
 
 ## License
 
-MIT License - see LICENSE file for details
+MIT License — see LICENSE file
 
 ## Support
 
-For issues and questions:
-
-- Open an issue on GitHub
-- Check existing documentation
-- Review logs in `logs/` directory
+- GitHub Issues: Bug reports & feature requests
+- Documentation: `docs/` folder
+- Logs: `logs/` folder (development)
 
 ## Acknowledgments
 
-- Built with [YesScale AI](https://yescale.io
-- Powered by [Google Gemini AI](https://deepmind.google/technologies/gemini/)
-- Logging by [Winston](https://github.com/winstonjs/winston)
+- Built with [Grammy](https://grammy.dev/) — Telegram bot framework
+- Powered by [OpenRouter](https://openrouter.ai/) — LLM API aggregator
+- Free models: Llama 3.3, Gemini, Mistral
+- Logging: [Winston](https://github.com/winstonjs/winston)
 
 ---
 
-Made with ❤️ for the Telegram and AI community
+**Status**: Production Ready | **Node**: 18+ | **License**: MIT
