@@ -1,3 +1,4 @@
+import OpenAI from "openai";
 import { z } from "zod";
 import dotenv from "dotenv";
 
@@ -67,8 +68,6 @@ export const openrouterConfig = {
     },
 
     request: {
-        maxRetries: 3,
-        retryDelay: 1000,
         timeout: env.OPENROUTER_TIMEOUT,
     },
 
@@ -90,3 +89,19 @@ You should:
 } as const;
 
 export type OpenRouterConfig = typeof openrouterConfig;
+
+export const createOpenRouterClient = (): OpenAI => {
+    const defaultHeaders: Record<string, string> = {};
+    if (openrouterConfig.appHeaders.referer)
+        defaultHeaders["HTTP-Referer"] = openrouterConfig.appHeaders.referer;
+    if (openrouterConfig.appHeaders.title)
+        defaultHeaders["X-Title"] = openrouterConfig.appHeaders.title;
+
+    return new OpenAI({
+        apiKey: openrouterConfig.apiKey,
+        baseURL: openrouterConfig.baseUrl,
+        timeout: openrouterConfig.request.timeout,
+        maxRetries: 0, // custom retryWithBackoff handles non-streaming retries
+        defaultHeaders,
+    });
+};

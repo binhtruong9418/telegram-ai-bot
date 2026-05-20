@@ -1,4 +1,5 @@
-import { openrouterConfig } from "../config/openrouter.config";
+import OpenAI from "openai";
+import { openrouterConfig, createOpenRouterClient } from "../config/openrouter.config";
 import {
     TextGenerationRequest,
     ImageAnalysisRequest,
@@ -10,68 +11,24 @@ import {
 import { logger, logApiCall, logError } from "../utils/logger";
 import { RETRY_CONFIG, ERROR_CODES } from "../utils/constants";
 
-interface ChatMessage {
-    role: "system" | "user" | "assistant";
-    content:
-        | string
-        | Array<{
-              type: "text" | "image_url";
-              text?: string;
-              image_url?: {
-                  url: string;
-                  detail?: "auto" | "low" | "high";
-              };
-          }>;
-}
-
-interface ChatCompletionResponse {
-    id: string;
-    object: string;
-    created: number;
-    model: string;
-    choices: Array<{
-        index: number;
-        message: {
-            role: string;
-            content: string;
-        };
-        finish_reason: string;
-    }>;
-    usage: {
-        prompt_tokens: number;
-        completion_tokens: number;
-        total_tokens: number;
-    };
-}
+type ChatMessage = OpenAI.ChatCompletionMessageParam;
 
 /**
  * OpenRouter AI Service
- * Handles all interactions with OpenRouter API (OpenAI-compatible)
+ * Handles all interactions with OpenRouter API via openai SDK
  */
 export class OpenRouterService {
-    private baseUrl: string;
-    private apiKey: string;
+    private client: OpenAI;
     private textModel: string;
     private visionModel: string;
-    private extraHeaders: Record<string, string>;
 
     constructor() {
-        this.baseUrl = openrouterConfig.baseUrl;
-        this.apiKey = openrouterConfig.apiKey;
+        this.client = createOpenRouterClient();
         this.textModel = openrouterConfig.models.text;
         this.visionModel = openrouterConfig.models.vision;
 
-        // Build optional OpenRouter identification headers
-        this.extraHeaders = {};
-        if (openrouterConfig.appHeaders.referer) {
-            this.extraHeaders["HTTP-Referer"] = openrouterConfig.appHeaders.referer;
-        }
-        if (openrouterConfig.appHeaders.title) {
-            this.extraHeaders["X-Title"] = openrouterConfig.appHeaders.title;
-        }
-
         logger.info("OpenRouter service initialized", {
-            baseUrl: this.baseUrl,
+            baseUrl: openrouterConfig.baseUrl,
             textModel: this.textModel,
             visionModel: this.visionModel,
         });
@@ -89,23 +46,13 @@ export class OpenRouterService {
             });
 
             const messages: ChatMessage[] = [
-                {
-                    role: "system",
-                    content: openrouterConfig.systemInstruction,
-                },
+                { role: "system", content: openrouterConfig.systemInstruction },
                 ...this.formatHistory(request.conversationHistory),
-                {
-                    role: "user",
-                    content: request.prompt,
-                },
+                { role: "user", content: request.prompt },
             ];
 
             const result = await this.retryWithBackoff(async () => {
-                return await this.chatCompletion(
-                    messages,
-                    this.textModel,
-                    request.settings
-                );
+                return await this.chatCompletion(messages, this.textModel, request.settings);
             });
 
             const text = result.choices[0]?.message?.content || "";
@@ -141,23 +88,13 @@ export class OpenRouterService {
             });
 
             const messages: ChatMessage[] = [
-                {
-                    role: "system",
-                    content: openrouterConfig.systemInstruction,
-                },
+                { role: "system", content: openrouterConfig.systemInstruction },
                 ...this.formatHistory(request.conversationHistory),
-                {
-                    role: "user",
-                    content: request.prompt,
-                },
+                { role: "user", content: request.prompt },
             ];
 
             let index = 0;
-            for await (const chunk of this.chatCompletionStream(
-                messages,
-                this.textModel,
-                request.settings
-            )) {
+            for await (const chunk of this.chatCompletionStream(messages, this.textModel, request.settings)) {
                 yield { text: chunk, done: false, index: index++ };
             }
 
@@ -180,32 +117,7 @@ export class OpenRouterService {
                 hasPrompt: !!request.prompt,
             });
 
-            const imageData =
-                typeof request.imageData === "string"
-                    ? request.imageData
-                    : request.imageData.toString("base64");
-
-            const imageUrl = `data:${request.mimeType};base64,${imageData}`;
-
-            const messages: ChatMessage[] = [
-                {
-                    role: "system",
-                    content: openrouterConfig.systemInstruction,
-                },
-                {
-                    role: "user",
-                    content: [
-                        {
-                            type: "text",
-                            text: request.prompt || "Describe this image in detail.",
-                        },
-                        {
-                            type: "image_url",
-                            image_url: { url: imageUrl, detail: "auto" },
-                        },
-                    ],
-                },
-            ];
+            const messages = this.buildImageMessages(request);
 
             const result = await this.retryWithBackoff(async () => {
                 return await this.chatCompletion(messages, this.visionModel);
@@ -243,32 +155,7 @@ export class OpenRouterService {
                 hasPrompt: !!request.prompt,
             });
 
-            const imageData =
-                typeof request.imageData === "string"
-                    ? request.imageData
-                    : request.imageData.toString("base64");
-
-            const imageUrl = `data:${request.mimeType};base64,${imageData}`;
-
-            const messages: ChatMessage[] = [
-                {
-                    role: "system",
-                    content: openrouterConfig.systemInstruction,
-                },
-                {
-                    role: "user",
-                    content: [
-                        {
-                            type: "text",
-                            text: request.prompt || "Describe this image in detail.",
-                        },
-                        {
-                            type: "image_url",
-                            image_url: { url: imageUrl, detail: "auto" },
-                        },
-                    ],
-                },
-            ];
+            const messages = this.buildImageMessages(request);
 
             let index = 0;
             for await (const chunk of this.chatCompletionStream(messages, this.visionModel)) {
@@ -293,10 +180,7 @@ export class OpenRouterService {
             const fullPrompt = this.buildPromptWithContext(prompt, fileContext);
 
             const messages: ChatMessage[] = [
-                {
-                    role: "system",
-                    content: openrouterConfig.systemInstruction,
-                },
+                { role: "system", content: openrouterConfig.systemInstruction },
                 ...history.map((msg) => ({
                     role: msg.role === "model" ? ("assistant" as const) : ("user" as const),
                     content: msg.content,
@@ -322,10 +206,7 @@ export class OpenRouterService {
             const fullPrompt = this.buildPromptWithContext(prompt, fileContext);
 
             const messages: ChatMessage[] = [
-                {
-                    role: "system",
-                    content: openrouterConfig.systemInstruction,
-                },
+                { role: "system", content: openrouterConfig.systemInstruction },
                 ...history.map((msg) => ({
                     role: msg.role === "model" ? ("assistant" as const) : ("user" as const),
                     content: msg.content,
@@ -347,25 +228,15 @@ export class OpenRouterService {
             if (file.fileType === "image" && file.base64) {
                 const imageUrl = `data:${file.mimeType};base64,${file.base64}`;
                 const messages: ChatMessage[] = [
-                    {
-                        role: "system",
-                        content: openrouterConfig.systemInstruction,
-                    },
+                    { role: "system", content: openrouterConfig.systemInstruction },
                     {
                         role: "user",
                         content: [
-                            {
-                                type: "text",
-                                text: "Provide a brief summary of what you see in this image.",
-                            },
-                            {
-                                type: "image_url",
-                                image_url: { url: imageUrl, detail: "auto" },
-                            },
+                            { type: "text", text: "Provide a brief summary of what you see in this image." },
+                            { type: "image_url", image_url: { url: imageUrl, detail: "auto" } },
                         ],
                     },
                 ];
-
                 const result = await this.chatCompletion(messages, this.visionModel);
                 return result.choices[0]?.message?.content || "Summary generation failed";
             }
@@ -386,173 +257,120 @@ export class OpenRouterService {
         }
     }
 
+    private buildImageMessages(request: ImageAnalysisRequest): ChatMessage[] {
+        const imageData =
+            typeof request.imageData === "string"
+                ? request.imageData
+                : request.imageData.toString("base64");
+        const imageUrl = `data:${request.mimeType};base64,${imageData}`;
+
+        return [
+            { role: "system", content: openrouterConfig.systemInstruction },
+            {
+                role: "user",
+                content: [
+                    { type: "text", text: request.prompt || "Describe this image in detail." },
+                    { type: "image_url", image_url: { url: imageUrl, detail: "auto" } },
+                ],
+            },
+        ];
+    }
+
     private formatHistory(
         history: TextGenerationRequest["conversationHistory"]
     ): ChatMessage[] {
-        return history.map((msg) => {
+        return history.map((msg): ChatMessage => {
+            const role = msg.role === "model" ? ("assistant" as const) : ("user" as const);
             if (msg.hasImage && msg.imageData && msg.imageMimeType) {
                 const imageUrl = `data:${msg.imageMimeType};base64,${msg.imageData}`;
                 return {
-                    role: msg.role === "model" ? ("assistant" as const) : ("user" as const),
+                    role: "user",
                     content: [
                         { type: "text" as const, text: msg.content },
-                        {
-                            type: "image_url" as const,
-                            image_url: { url: imageUrl, detail: "auto" as const },
-                        },
+                        { type: "image_url" as const, image_url: { url: imageUrl, detail: "auto" as const } },
                     ],
-                };
+                } satisfies OpenAI.ChatCompletionUserMessageParam;
             }
-            return {
-                role: msg.role === "model" ? ("assistant" as const) : ("user" as const),
-                content: msg.content,
-            };
+            return { role, content: msg.content } as ChatMessage;
         });
-    }
-
-    private buildRequestHeaders(): Record<string, string> {
-        return {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${this.apiKey}`,
-            ...this.extraHeaders,
-        };
     }
 
     private async chatCompletion(
         messages: ChatMessage[],
         model: string,
         settings?: { temperature?: number; maxTokens?: number }
-    ): Promise<ChatCompletionResponse> {
-        const response = await fetch(`${this.baseUrl}/chat/completions`, {
-            method: "POST",
-            headers: this.buildRequestHeaders(),
-            body: JSON.stringify({
+    ): Promise<OpenAI.ChatCompletion> {
+        try {
+            const result = await this.client.chat.completions.create({
                 model,
                 messages,
-                temperature:
-                    settings?.temperature ??
-                    openrouterConfig.generationConfig.temperature,
-                max_tokens:
-                    settings?.maxTokens ??
-                    openrouterConfig.generationConfig.maxTokens,
+                temperature: settings?.temperature ?? openrouterConfig.generationConfig.temperature,
+                max_tokens: settings?.maxTokens ?? openrouterConfig.generationConfig.maxTokens,
                 top_p: openrouterConfig.generationConfig.topP,
                 stream: false,
-            }),
-            signal: AbortSignal.timeout(openrouterConfig.request.timeout),
-        });
+            });
 
-        if (!response.ok) {
-            throw new Error(await this.parseApiError(response));
-        }
-
-        const result = (await response.json()) as ChatCompletionResponse;
-
-        // OpenRouter returns content: null on cold start or provider failure
-        const content = result.choices?.[0]?.message?.content;
-        if (content === null || content === undefined) {
-            const finishReason = result.choices?.[0]?.finish_reason;
-            throw new Error(
-                `OpenRouter returned no content (finish_reason: ${finishReason ?? "unknown"}). ` +
-                `This may be a model cold start or provider issue — please retry.`
-            );
-        }
-
-        return result;
-    }
-
-    /** Parse OpenRouter error response: { error: { code, message } } */
-    private async parseApiError(response: Response): Promise<string> {
-        const text = await response.text();
-        try {
-            const body = JSON.parse(text) as { error?: { code?: number; message?: string } };
-            const msg = body.error?.message ?? text;
-            if (response.status === 402) {
-                return `OpenRouter: insufficient credits — add credits at openrouter.ai to continue. (${msg})`;
+            const content = result.choices?.[0]?.message?.content;
+            if (content === null || content === undefined) {
+                const finishReason = result.choices?.[0]?.finish_reason;
+                throw new Error(
+                    `OpenRouter returned no content (finish_reason: ${finishReason ?? "unknown"}). ` +
+                    `This may be a model cold start or provider issue — please retry.`
+                );
             }
-            if (response.status === 429) {
-                return `OpenRouter: rate limit exceeded — free models allow limited requests per day. (${msg})`;
-            }
-            return `OpenRouter API error (${response.status}): ${msg}`;
-        } catch {
-            return `OpenRouter API error (${response.status}): ${text}`;
+
+            return result;
+        } catch (error) {
+            throw this.mapSdkError(error);
         }
     }
 
+    // No retry wrapper here — streaming callers may have already yielded partial output,
+    // making retry semantics ambiguous. Transient failures surface to the handler.
     private async *chatCompletionStream(
         messages: ChatMessage[],
         model: string,
         settings?: { temperature?: number; maxTokens?: number }
     ): AsyncGenerator<string> {
-        const response = await fetch(`${this.baseUrl}/chat/completions`, {
-            method: "POST",
-            headers: this.buildRequestHeaders(),
-            body: JSON.stringify({
+        try {
+            const stream = await this.client.chat.completions.create({
                 model,
                 messages,
-                temperature:
-                    settings?.temperature ??
-                    openrouterConfig.generationConfig.temperature,
-                max_tokens:
-                    settings?.maxTokens ??
-                    openrouterConfig.generationConfig.maxTokens,
+                temperature: settings?.temperature ?? openrouterConfig.generationConfig.temperature,
+                max_tokens: settings?.maxTokens ?? openrouterConfig.generationConfig.maxTokens,
                 top_p: openrouterConfig.generationConfig.topP,
                 stream: true,
-            }),
-            signal: AbortSignal.timeout(openrouterConfig.request.timeout),
-        });
+            });
 
-        if (!response.ok) {
-            throw new Error(await this.parseApiError(response));
-        }
-
-        const reader = response.body?.getReader();
-        if (!reader) throw new Error("No response body");
-
-        const decoder = new TextDecoder();
-        let buffer = "";
-
-        try {
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split("\n");
-                buffer = lines.pop() || "";
-
-                for (const line of lines) {
-                    const trimmedLine = line.trim();
-                    if (!trimmedLine || trimmedLine === "data: [DONE]") continue;
-
-                    if (trimmedLine.startsWith("data: ")) {
-                        try {
-                            const data = JSON.parse(trimmedLine.slice(6));
-
-                            // Detect mid-stream provider error
-                            const finishReason = data.choices?.[0]?.finish_reason;
-                            if (finishReason === "error") {
-                                const errMsg = data.choices?.[0]?.message?.content
-                                    ?? data.error?.message
-                                    ?? "Unknown streaming error";
-                                throw new Error(`OpenRouter stream error: ${errMsg}`);
-                            }
-
-                            const content = data.choices?.[0]?.delta?.content;
-                            if (content) yield content;
-                        } catch (parseErr) {
-                            // Re-throw real errors, only warn on JSON parse failures
-                            if (parseErr instanceof SyntaxError) {
-                                logger.warn("Failed to parse SSE data:", trimmedLine);
-                            } else {
-                                throw parseErr;
-                            }
-                        }
-                    }
+            for await (const chunk of stream) {
+                const finishReason = chunk.choices?.[0]?.finish_reason as string | null;
+                if (finishReason === "error") {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const errMsg = (chunk.choices?.[0] as any)?.message?.content
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        ?? (chunk as any).error?.message
+                        ?? "Unknown streaming error";
+                    throw new Error(`OpenRouter stream error: ${errMsg}`);
                 }
+                const content = chunk.choices?.[0]?.delta?.content;
+                if (content) yield content;
             }
-        } finally {
-            reader.releaseLock();
+        } catch (error) {
+            throw this.mapSdkError(error);
         }
+    }
+
+    /** Map OpenAI SDK errors to preserve OpenRouter-specific 402/429 messages */
+    private mapSdkError(error: unknown): Error {
+        if (error instanceof OpenAI.APIError) {
+            const msg = error.message ?? "Unknown error";
+            if (error.status === 402)
+                return new Error(`OpenRouter: insufficient credits — add credits at openrouter.ai to continue. (${msg})`);
+            if (error.status === 429)
+                return new Error(`OpenRouter: rate limit exceeded — free models allow limited requests per day. (${msg})`);
+            return new Error(`OpenRouter API error (${error.status}): ${msg}`);
+        }
+        return error instanceof Error ? error : new Error(String(error));
     }
 
     private buildFileContext(files: UploadedFile[]): string {
@@ -597,6 +415,11 @@ export class OpenRouterService {
             try {
                 return await fn();
             } catch (error) {
+                // Don't retry non-recoverable status codes
+                if (error instanceof OpenAI.APIError && (error.status === 401 || error.status === 402)) {
+                    throw this.mapSdkError(error);
+                }
+
                 lastError = error as Error;
 
                 if (attempt < maxRetries) {
