@@ -17,6 +17,12 @@ cd telegram-ai-bot
 npm install
 ```
 
+**Key Dependencies**:
+- `grammy` — Telegram bot framework
+- `openai` — OpenRouter API client (SDK v4.x)
+- `dotenv`, `zod`, `winston` — Config, validation, logging
+- `pdf-parse`, `mammoth` — File parsing
+
 ### 2. Configure Environment
 
 ```bash

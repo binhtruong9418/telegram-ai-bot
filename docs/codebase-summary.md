@@ -138,15 +138,17 @@ src/
 
 ### Services
 
-**`openrouter.service.ts`** (632 LOC)
+**`openrouter.service.ts`** (455 LOC)
+- Uses **OpenAI SDK (v4.x)** for API communication (replaced raw fetch)
 - `generateText(request)`: non-streaming text generation
-- `generateStream(request)`: streaming text response (Server-Sent Events)
+- `generateStream(request)`: streaming text response via SDK
 - `generateStreamWithFileContext(prompt, files, history)`: RAG streaming
 - `analyzeImage(request)`: non-streaming vision
 - `analyzeImageStream(request)`: streaming vision response
-- Exponential backoff retry: 1s → 2s → 4s → 10s (max 3 retries)
+- `buildImageMessages()`: extracted helper for vision message formatting (DRY)
+- `mapSdkError()`: preserves API error details (402, 429) via OpenAI.APIError
+- `retryWithBackoff()`: exponential backoff (1s → 2s → 4s), early-abort for 401/402
 - Request timeout: 120s (free tier cold start tolerance)
-- Format chat messages + system instruction
 - Logs API calls with timing
 
 **`conversation.service.ts`** (225 LOC)
@@ -336,6 +338,7 @@ After 1 hour inactivity: storage.service.ts auto-cleanup removes session
 | Package | Version | Purpose |
 |---------|---------|---------|
 | grammy | ^1.21.1 | Telegram bot framework |
+| openai | ^4.x | OpenRouter API client (SDK-based) |
 | dotenv | ^16.4.1 | Environment variable loading |
 | zod | ^3.22.4 | Config validation |
 | winston | ^3.11.0 | Logging (console + file) |

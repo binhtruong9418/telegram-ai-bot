@@ -95,11 +95,12 @@ shutdown(signal)
 - Fail-fast on missing/invalid env vars
 - Exports typed `botConfig` object with `as const`
 
-**`openrouter.config.ts`** (92 LOC)
-- OpenRouter API URL, keys, models, timeouts
+**`openrouter.config.ts`** (108 LOC)
+- `createOpenRouterClient()`: Factory function instantiating OpenAI SDK with OpenRouter base URL
+- Configures SDK with API key, timeout, custom headers (HTTP-Referer, X-Title)
 - Default models: llama-3.3-70b (text), gemma-3-27b (vision)
 - System instruction (helpful AI persona)
-- Retry config: 3 retries, 1s init delay, 2x multiplier
+- Note: maxRetries set to 0 (custom `retryWithBackoff()` in service handles retries)
 
 ### 3. Middleware Stack
 
@@ -255,21 +256,22 @@ imageHandler(ctx)
 
 ### 5. Service Layer
 
-#### a. OpenRouter Service (`632 LOC`)
+#### a. OpenRouter Service (`455 LOC`)
+
+Uses **OpenAI SDK v4** for type-safe API calls. Instances created via `createOpenRouterClient()`.
 
 **Core Methods**:
 
 1. **`generateText(request)`** — Non-streaming
-   - Build chat messages array
-   - POST to `/chat/completions` with `stream: false`
+   - Build chat messages array (OpenAI.ChatCompletionMessageParam)
+   - Call `client.chat.completions.create()` with `stream: false`
    - Return full response + token usage
 
 2. **`generateStream(request)`** — Streaming generator
    - Build chat messages array
-   - POST to `/chat/completions` with `stream: true`
-   - Attach SSE event listener
+   - Call `client.chat.completions.create()` with `stream: true`
    - Yield chunks as AsyncGenerator<string>
-   - On error: retry with exponential backoff
+   - On timeout/error: handled by `retryWithBackoff()`
 
 3. **`generateStreamWithFileContext(prompt, files, history)`** — Streaming with RAG
    - Prepend file contents (10k chars max) to prompt
@@ -277,18 +279,26 @@ imageHandler(ctx)
    - Return streaming response
 
 4. **`analyzeImage(request)`** — Non-streaming vision
-   - Convert image to base64 or URL
-   - Build message with `type: 'image_url'`
-   - POST to `/chat/completions` with vision model
+   - Convert image to base64
+   - Build message with `type: 'image_url'` (vision model format)
+   - Call `client.chat.completions.create()` with vision model
    - Return analysis + tokens
 
 5. **`analyzeImageStream(request)`** — Streaming vision
    - Similar to analyzeImage but with `stream: true`
    - Yield chunks as AsyncGenerator<string>
 
-**Retry Logic**:
+6. **`buildImageMessages()`** — Helper for vision prompt construction
+   - Encapsulates image message format + system instruction (DRY)
+
+7. **`mapSdkError(error)`** — Error mapping
+   - Extracts status code from `OpenAI.APIError`
+   - Preserves custom messages for 402 (insufficient_quota) and 429 (rate_limit_exceeded)
+
+**Retry Logic** (`retryWithBackoff()`):
 ```
 Attempt 1 (immediate)
+  ├─ 401/402? → Throw immediately (non-retryable)
   ├─ Timeout? → Delay 1s, try again
   └─ Success? → Return
 
@@ -304,14 +314,18 @@ Fail (after 4s)
   └─ Throw BotCustomError
 ```
 
-**Headers**:
+**SDK Configuration** (in config):
 ```typescript
-{
-  'Content-Type': 'application/json',
-  'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-  'HTTP-Referer': OPENROUTER_APP_URL || undefined,
-  'X-Title': OPENROUTER_APP_TITLE || undefined,
-}
+new OpenAI({
+  apiKey: OPENROUTER_API_KEY,
+  baseURL: 'https://openrouter.ai/api/v1',
+  timeout: 120000,
+  maxRetries: 0,  // Custom retryWithBackoff handles retries
+  defaultHeaders: {
+    'HTTP-Referer': OPENROUTER_APP_URL,
+    'X-Title': OPENROUTER_APP_TITLE,
+  }
+})
 ```
 
 #### b. Conversation Service (`225 LOC`)
